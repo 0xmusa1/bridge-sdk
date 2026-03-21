@@ -59,3 +59,12 @@ export type MessageTransferWrappedToken = Extract<
   BridgeBaseToSolanaStateIncomingMessageTransfer,
   { __kind: "WrappedToken" }
 >;
+
+export interface EvmIncomingMessage {
+  outgoingMessagePubkey: Hex;
+  gasLimit: bigint;
+  nonce: bigint;
+  sender: Hex;
+  ty: number;
+  data: Hex;
+}
