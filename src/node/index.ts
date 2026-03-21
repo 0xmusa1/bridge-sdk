@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import {
   createKeyPairFromBytes,
   createSignerFromKeyPair,
@@ -7,8 +8,7 @@ import {
 
 function expandHome(path: string): string {
   if (path.startsWith("~/")) {
-    const home = process.env.HOME ?? "";
-    return `${home}/${path.slice(2)}`;
+    return `${homedir()}/${path.slice(2)}`;
   }
   return path;
 }
@@ -37,5 +37,3 @@ export async function loadSolanaKeypair(path: string): Promise<KeyPairSigner> {
   const keypair = await createKeyPairFromBytes(keypairBytes);
   return await createSignerFromKeyPair(keypair);
 }
-
-export { expandHome };
