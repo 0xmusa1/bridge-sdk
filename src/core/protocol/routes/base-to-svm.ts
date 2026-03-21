@@ -1,11 +1,18 @@
 import type { Instruction, Address as SolAddress } from "@solana/kit";
-import { AccountRole, address as solAddress } from "@solana/kit";
+import {
+  AccountRole,
+  createSolanaRpc,
+  getProgramDerivedAddress,
+  address as solAddress,
+} from "@solana/kit";
 import type { Hash, Hex } from "viem";
 import { decodeEventLog, toBytes } from "viem";
 import type { EvmChainAdapter } from "../../../adapters/chains/evm/types";
 import type { SolanaChainAdapter } from "../../../adapters/chains/solana/types";
 import type { Ix } from "../../../clients/ts/src/bridge";
+import { fetchMaybeIncomingMessage } from "../../../clients/ts/src/bridge";
 import { BRIDGE_ABI } from "../../../interfaces/abis/bridge.abi";
+import { getIdlConstant } from "../../../utils/bridge-idl.constants";
 import {
   BridgeAlreadyExecutedError,
   BridgeNotProvenError,
@@ -549,12 +556,7 @@ export class BaseToSvmRouteAdapter implements RouteAdapter {
 
     const pda = await this.deriveIncomingMessagePda(messageHash);
 
-    const rpc = (await import("@solana/kit")).createSolanaRpc(
-      this.solana.rpcUrl,
-    );
-    const { fetchMaybeIncomingMessage } = await import(
-      "../../../clients/ts/src/bridge"
-    );
+    const rpc = createSolanaRpc(this.solana.rpcUrl);
     const maybe = await fetchMaybeIncomingMessage(rpc, pda, {
       abortSignal: opts?.signal,
     });
@@ -580,17 +582,12 @@ export class BaseToSvmRouteAdapter implements RouteAdapter {
   private async deriveIncomingMessagePda(
     messageHash: Hex,
   ): Promise<SolAddress> {
-    const { getProgramDerivedAddress } = await import("@solana/kit");
-    const { getIdlConstant } = await import(
-      "../../../utils/bridge-idl.constants"
-    );
-    const seeds = [
-      Buffer.from(getIdlConstant("INCOMING_MESSAGE_SEED")),
-      Buffer.from((await import("viem")).toBytes(messageHash)),
-    ];
     const [pda] = await getProgramDerivedAddress({
       programAddress: this.solanaDeployment.bridgeProgram,
-      seeds,
+      seeds: [
+        Buffer.from(getIdlConstant("INCOMING_MESSAGE_SEED")),
+        Buffer.from(toBytes(messageHash)),
+      ],
     });
     return pda;
   }
