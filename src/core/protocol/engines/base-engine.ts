@@ -2,7 +2,6 @@ import type { Account, Address } from "@solana/kit";
 import {
   createPublicClient,
   createWalletClient,
-  decodeEventLog,
   type Hash,
   type Hex,
   http,
@@ -21,6 +20,7 @@ import { BRIDGE_VALIDATOR_ABI } from "../../../interfaces/abis/bridge-validator.
 import { type Logger, NOOP_LOGGER } from "../../../utils/logger";
 import { sleep } from "../../../utils/time";
 import { buildEvmIncomingMessage, bytes32FromSolanaPubkey } from "../encoding";
+import { decodeMessageInitiatedEvents } from "../events";
 import {
   DEFAULT_EVM_GAS_LIMIT,
   DEFAULT_MONITOR_POLL_INTERVAL_MS,
@@ -150,34 +150,17 @@ export class BaseEngine {
       throw new Error(`Transaction reverted: ${transactionHash}`);
     }
 
+    // Validate that bridge state is not behind the transaction
+    for (const log of txReceipt.logs) {
+      if (blockNumber < log.blockNumber) {
+        throw new Error(
+          `Solana bridge state is stale (behind transaction block). Bridge state block: ${blockNumber}, Transaction block: ${log.blockNumber}`,
+        );
+      }
+    }
+
     // Extract and decode MessageInitiated events
-    const msgInitEvents = txReceipt.logs
-      .map((log) => {
-        if (blockNumber < log.blockNumber) {
-          throw new Error(
-            `Solana bridge state is stale (behind transaction block). Bridge state block: ${blockNumber}, Transaction block: ${log.blockNumber}`,
-          );
-        }
-
-        try {
-          const decodedLog = decodeEventLog({
-            abi: BRIDGE_ABI,
-            data: log.data,
-            topics: log.topics,
-          });
-
-          return decodedLog.eventName === "MessageInitiated"
-            ? {
-                messageHash: decodedLog.args.messageHash,
-                mmrRoot: decodedLog.args.mmrRoot,
-                message: decodedLog.args.message,
-              }
-            : null;
-        } catch {
-          return null;
-        }
-      })
-      .filter((event) => event !== null);
+    const msgInitEvents = decodeMessageInitiatedEvents(txReceipt.logs);
 
     if (msgInitEvents.length === 0) {
       throw new Error("No MessageInitiated event found in transaction");
