@@ -10,9 +10,8 @@ import {
 } from "../src/core/protocol/router";
 import { BaseToSvmRouteAdapter } from "../src/core/protocol/routes/base-to-svm";
 import type { BridgeRequest, BridgeRoute } from "../src/core/types";
+import { FAKE_TX_HASH, makeReceipt } from "./test-helpers";
 
-const FAKE_TX_HASH =
-  "0xaabbccddee00112233445566778899aabbccddee00112233445566778899aabb" as const;
 const FAKE_MESSAGE_HASH =
   "0x1111111111111111111111111111111111111111111111111111111111111111" as const;
 const FAKE_MMR_ROOT =
@@ -54,23 +53,21 @@ function wireAdapter(
   stub.tokenMapping = opts?.tokenMapping;
 
   // Stub extractMessageInitiated to avoid needing realistic EVM receipt logs.
-  stub.extractMessageInitiated = mock(() =>
-    Promise.resolve({
-      messageHash: FAKE_MESSAGE_HASH,
-      mmrRoot: FAKE_MMR_ROOT,
-      nonce: FAKE_NONCE,
-      sender: FAKE_SENDER,
-      data: FAKE_DATA,
-    }),
-  );
+  stub.extractMessageInitiated = mock(() => ({
+    messageHash: FAKE_MESSAGE_HASH,
+    mmrRoot: FAKE_MMR_ROOT,
+    nonce: FAKE_NONCE,
+    sender: FAKE_SENDER,
+    data: FAKE_DATA,
+  }));
 
   return adapter;
 }
 
 function buildAdapter(opts?: { tokenMapping?: Record<string, string> }) {
   const engineStub = {
-    bridgeCall: mock(() => Promise.resolve(FAKE_TX_HASH)),
-    bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+    bridgeCall: mock(() => Promise.resolve({ receipt: makeReceipt() })),
+    bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
   };
 
   return { adapter: wireAdapter(engineStub, opts), engineStub };
@@ -395,7 +392,7 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
       bridgeCall: mock(() =>
         Promise.reject(new Error("Simulated RPC failure")),
       ),
-      bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
     };
     const adapter = wireAdapter(engineStub);
 
@@ -418,7 +415,7 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
 
   test("propagates engine errors from bridgeToken", async () => {
     const engineStub = {
-      bridgeCall: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeCall: mock(() => Promise.resolve({ receipt: makeReceipt() })),
       bridgeToken: mock(() =>
         Promise.reject(new Error("Simulated token bridge failure")),
       ),
@@ -446,20 +443,18 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
 
   test("propagates extractMessageInitiated error when zero events found (call path)", async () => {
     const engineStub = {
-      bridgeCall: mock(() => Promise.resolve(FAKE_TX_HASH)),
-      bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeCall: mock(() => Promise.resolve({ receipt: makeReceipt() })),
+      bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
     };
     const adapter = wireAdapter(engineStub);
 
     (adapter as unknown as Record<string, unknown>).extractMessageInitiated =
-      mock(() =>
-        Promise.reject(
-          new BridgeProofNotAvailableError(
-            "Expected exactly 1 MessageInitiated event in tx receipt; found 0",
-            { route, chain: BASE_MAINNET_CHAIN_ID },
-          ),
-        ),
-      );
+      mock(() => {
+        throw new BridgeProofNotAvailableError(
+          "Expected exactly 1 MessageInitiated event in tx receipt; found 0",
+          { route, chain: BASE_MAINNET_CHAIN_ID },
+        );
+      });
 
     const req = makeCallRequest();
 
@@ -480,22 +475,20 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
 
   test("propagates extractMessageInitiated error when multiple events found (transfer path)", async () => {
     const engineStub = {
-      bridgeCall: mock(() => Promise.resolve(FAKE_TX_HASH)),
-      bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeCall: mock(() => Promise.resolve({ receipt: makeReceipt() })),
+      bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
     };
     const adapter = wireAdapter(engineStub, {
       tokenMapping: { "0xToken": SOL_WRAPPED_SOL_MINT },
     });
 
     (adapter as unknown as Record<string, unknown>).extractMessageInitiated =
-      mock(() =>
-        Promise.reject(
-          new BridgeProofNotAvailableError(
-            "Expected exactly 1 MessageInitiated event in tx receipt; found 3",
-            { route, chain: BASE_MAINNET_CHAIN_ID },
-          ),
-        ),
-      );
+      mock(() => {
+        throw new BridgeProofNotAvailableError(
+          "Expected exactly 1 MessageInitiated event in tx receipt; found 3",
+          { route, chain: BASE_MAINNET_CHAIN_ID },
+        );
+      });
 
     const req = makeTransferRequest({ address: "0xToken" });
 
@@ -516,24 +509,22 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
 
   test("propagates RPC error from extractMessageInitiated receipt fetch", async () => {
     const engineStub = {
-      bridgeCall: mock(() => Promise.resolve(FAKE_TX_HASH)),
-      bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeCall: mock(() => Promise.resolve({ receipt: makeReceipt() })),
+      bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
     };
     const adapter = wireAdapter(engineStub);
 
     (adapter as unknown as Record<string, unknown>).extractMessageInitiated =
-      mock(() =>
-        Promise.reject(
-          new BridgeError({
-            message: "Failed to fetch transaction receipt",
-            code: "RPC_ERROR",
-            outcome: "retry",
-            stage: "initiate",
-            route,
-            chain: BASE_MAINNET_CHAIN_ID,
-          }),
-        ),
-      );
+      mock(() => {
+        throw new BridgeError({
+          message: "Failed to fetch transaction receipt",
+          code: "RPC_ERROR",
+          outcome: "retry",
+          stage: "initiate",
+          route,
+          chain: BASE_MAINNET_CHAIN_ID,
+        });
+      });
 
     const req = makeCallRequest();
 
@@ -563,7 +554,7 @@ describe("BaseToSvmRouteAdapter.initiate – edge cases", () => {
 
     const engineStub = {
       bridgeCall: mock(() => Promise.reject(subclassError)),
-      bridgeToken: mock(() => Promise.resolve(FAKE_TX_HASH)),
+      bridgeToken: mock(() => Promise.resolve({ receipt: makeReceipt() })),
     };
     const adapter = wireAdapter(engineStub);
 
